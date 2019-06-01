@@ -3,6 +3,7 @@ package com.alipay.sdk.pay.demo;
 import android.Manifest;
 import android.app.Activity;
 import android.content.Context;
+import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.hardware.Sensor;
 import android.hardware.SensorEvent;
@@ -101,6 +102,16 @@ public class LocationDemo extends Activity implements SensorEventListener {
         };
 
         refreshBtn.setOnClickListener(refreshListener);
+
+        Button userBtn = (Button) findViewById(R.id.user);
+
+        OnClickListener userListener = new OnClickListener() {
+            public void onClick(View v) {
+                startActivity(new Intent(getApplicationContext(), UserActivity.class));
+            }
+        };
+
+        userBtn.setOnClickListener(userListener);
 
     }
 
