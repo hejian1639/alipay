@@ -1,8 +1,11 @@
 package com.alipay.sdk.pay.demo;
 
 import android.Manifest;
+import android.annotation.SuppressLint;
 import android.app.Activity;
+import android.app.AlertDialog;
 import android.content.Context;
+import android.content.DialogInterface;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.hardware.Sensor;
@@ -10,7 +13,11 @@ import android.hardware.SensorEvent;
 import android.hardware.SensorEventListener;
 import android.hardware.SensorManager;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Message;
 import android.os.Process;
+import android.text.TextUtils;
+import android.util.Log;
 import android.view.View;
 import android.view.View.OnClickListener;
 import android.widget.Button;
@@ -19,6 +26,7 @@ import android.widget.RadioGroup;
 import android.widget.RadioGroup.OnCheckedChangeListener;
 import android.widget.Toast;
 
+import com.alipay.sdk.app.PayTask;
 import com.baidu.location.BDAbstractLocationListener;
 import com.baidu.location.BDLocation;
 import com.baidu.location.LocationClient;
@@ -34,10 +42,26 @@ import com.baidu.mapapi.map.MyLocationConfiguration.LocationMode;
 import com.baidu.mapapi.map.MyLocationData;
 import com.baidu.mapapi.model.LatLng;
 
+
+import java.io.IOException;
+import java.util.Map;
+
+import okhttp3.OkHttpClient;
+import okhttp3.Request;
+import okhttp3.Response;
+import rx.Observable;
+import rx.Subscriber;
+import rx.Subscription;
+import rx.android.schedulers.AndroidSchedulers;
+import rx.functions.Func1;
+import rx.schedulers.Schedulers;
+
 /**
  * 此demo用来展示如何结合定位SDK实现定位，并使用MyLocationOverlay绘制定位位置 同时展示如何使用自定义图标绘制并点击时弹出泡泡
  */
 public class LocationDemo extends Activity implements SensorEventListener {
+    private static final int SDK_PAY_FLAG = 1;
+    private static final int SDK_AUTH_FLAG = 2;
 
     /**
      * 获取权限使用的 RequestCode
@@ -113,6 +137,15 @@ public class LocationDemo extends Activity implements SensorEventListener {
 
         userBtn.setOnClickListener(userListener);
 
+        Button shareBtn = (Button) findViewById(R.id.share);
+
+        OnClickListener shareListener = new OnClickListener() {
+            public void onClick(View v) {
+                payV2();
+            }
+        };
+
+        shareBtn.setOnClickListener(shareListener);
     }
 
     private void requestPermission() {
@@ -232,5 +265,131 @@ public class LocationDemo extends Activity implements SensorEventListener {
     private static void showToast(Context ctx, String msg) {
         Toast.makeText(ctx, msg, Toast.LENGTH_LONG).show();
     }
+
+    public void payV2() {
+        Observable.create(new Observable.OnSubscribe<Response>() {
+            OkHttpClient client = new OkHttpClient();
+
+            @Override
+            public void call(Subscriber<? super Response> subscriber) {
+                Request request = new Request.Builder().url("http://192.168.18.71:8080/order_info").build();
+                try {
+                    Response response = client.newCall(request).execute();
+                    subscriber.onNext(response);
+                    subscriber.onCompleted();
+                    if (!response.isSuccessful()) subscriber.onError(new Exception("error"));
+                } catch (IOException e) {
+                    subscriber.onError(e);
+                }
+
+
+            }
+        }).map(new Func1<Response, Map<String, String>>() {
+            @Override
+            public Map<String, String> call(Response response) {
+                final String orderInfo;
+                try {
+                    orderInfo = response.body().string();
+                    PayTask alipay = new PayTask(LocationDemo.this);
+                    Map<String, String> result = alipay.payV2(orderInfo, true);
+                    return result;
+                } catch (IOException e) {
+                    e.printStackTrace();
+                }
+                return null;
+
+            }
+        }).subscribeOn(Schedulers.io()).observeOn(AndroidSchedulers.mainThread()).subscribe(new Subscriber<Map<String, String>>() {
+            @Override
+            public void onCompleted() {
+
+            }
+
+            @Override
+            public void onError(Throwable e) {
+
+            }
+
+            @Override
+            public void onNext(Map<String, String> response) {
+                @SuppressWarnings("unchecked")
+                PayResult payResult = new PayResult(response);
+                /**
+                 * 对于支付结果，请商户依赖服务端的异步通知结果。同步通知结果，仅作为支付结束的通知。
+                 */
+                String resultInfo = payResult.getResult();// 同步返回需要验证的信息
+                String resultStatus = payResult.getResultStatus();
+                // 判断resultStatus 为9000则代表支付成功
+                if (TextUtils.equals(resultStatus, "9000")) {
+                    // 该笔订单是否真实支付成功，需要依赖服务端的异步通知。
+                    showAlert(LocationDemo.this, getString(R.string.pay_success) + payResult);
+                } else {
+                    // 该笔订单真实的支付结果，需要依赖服务端的异步通知。
+                    showAlert(LocationDemo.this, getString(R.string.pay_failed) + payResult);
+                }
+
+            }
+        });
+    }
+
+    private static void showAlert(Context ctx, String info) {
+        showAlert(ctx, info, null);
+    }
+
+    private static void showAlert(Context ctx, String info, DialogInterface.OnDismissListener onDismiss) {
+        new AlertDialog.Builder(ctx)
+                .setMessage(info)
+                .setPositiveButton(R.string.confirm, null)
+                .setOnDismissListener(onDismiss)
+                .show();
+    }
+
+    @SuppressLint("HandlerLeak")
+    private Handler mHandler = new Handler() {
+        @SuppressWarnings("unused")
+        public void handleMessage(Message msg) {
+            switch (msg.what) {
+                case SDK_PAY_FLAG: {
+                    @SuppressWarnings("unchecked")
+                    PayResult payResult = new PayResult((Map<String, String>) msg.obj);
+                    /**
+                     * 对于支付结果，请商户依赖服务端的异步通知结果。同步通知结果，仅作为支付结束的通知。
+                     */
+                    String resultInfo = payResult.getResult();// 同步返回需要验证的信息
+                    String resultStatus = payResult.getResultStatus();
+                    // 判断resultStatus 为9000则代表支付成功
+                    if (TextUtils.equals(resultStatus, "9000")) {
+                        // 该笔订单是否真实支付成功，需要依赖服务端的异步通知。
+                        showAlert(LocationDemo.this, getString(R.string.pay_success) + payResult);
+                    } else {
+                        // 该笔订单真实的支付结果，需要依赖服务端的异步通知。
+                        showAlert(LocationDemo.this, getString(R.string.pay_failed) + payResult);
+                    }
+                    break;
+                }
+                case SDK_AUTH_FLAG: {
+                    @SuppressWarnings("unchecked")
+                    AuthResult authResult = new AuthResult((Map<String, String>) msg.obj, true);
+                    String resultStatus = authResult.getResultStatus();
+
+                    // 判断resultStatus 为“9000”且result_code
+                    // 为“200”则代表授权成功，具体状态码代表含义可参考授权接口文档
+                    if (TextUtils.equals(resultStatus, "9000") && TextUtils.equals(authResult.getResultCode(), "200")) {
+                        // 获取alipay_open_id，调支付时作为参数extern_token 的value
+                        // 传入，则支付账户为该授权账户
+                        showAlert(LocationDemo.this, getString(R.string.auth_success) + authResult);
+                    } else {
+                        // 其他状态值则为授权失败
+                        showAlert(LocationDemo.this, getString(R.string.auth_failed) + authResult);
+                    }
+                    break;
+                }
+                default:
+                    break;
+            }
+        }
+
+        ;
+    };
 
 }

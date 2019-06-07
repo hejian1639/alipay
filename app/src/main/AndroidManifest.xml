@@ -49,18 +49,25 @@
         <activity
             android:name="com.alipay.sdk.pay.demo.PayDemoActivity"
             android:icon="@drawable/msp_icon"
-            android:label="@string/app_name"></activity>
+            android:label="@string/app_name">
+            <!--<intent-filter>-->
+                <!--<action android:name="android.intent.action.MAIN" />-->
+
+                <!--<category android:name="android.intent.category.LAUNCHER" />-->
+            <!--</intent-filter>-->
+
+        </activity>
         <activity
             android:name="com.alipay.sdk.pay.demo.LocationDemo"
             android:icon="@drawable/msp_icon"
             android:label="@string/app_name">
             <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
+            <action android:name="android.intent.action.MAIN" />
 
-                <category android:name="android.intent.category.LAUNCHER" />
+            <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
-        <activity android:name="com.alipay.sdk.pay.demo.UserActivity" />
+        <activity android:name="com.alipay.sdk.pay.demo.UserActivity"></activity>
 
     </application>
 
